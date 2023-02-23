@@ -312,6 +312,33 @@ public:
         fclose(f);
     }
 
+    void saveNoGradients(string path) {
+        FILE* f = fopen(path.c_str(), "wb");
+        int cnt = 3, x;
+
+        x = fwrite(&cnt, sizeof(int), 1, f);
+        assert(x == 1);
+
+        int sz = SIDE_NEURONS;
+
+        x = fwrite(inputBiases, sizeof(float), sz, f);
+        assert(x == sz);
+
+        sz = INPUT_NEURONS * SIDE_NEURONS;
+        x = fwrite(inputWeights, sizeof(float), sz, f);
+        assert(x == sz);
+
+        sz = 1;
+
+        x = fwrite(outputBias, sizeof(float), sz, f);
+        assert(x == sz);
+
+        x = fwrite(outputWeights, sizeof(float), HIDDEN_NEURONS, f);
+        assert(x == HIDDEN_NEURONS);
+
+        fclose(f);
+    }
+
     void load(string path) {
         FILE* f = fopen(path.c_str(), "rb");
         int cnt = 3, x;
@@ -685,6 +712,7 @@ __global__ void updateBiasGrad(float* biasGrad, float* outputErrors, int N) {
 
 const int BATCH_SIZE = 16384 * 4;
 const int BATCHES_TO_LOAD = 64;
+const int BATCHES_PER_EPOCH = 32;
 const int LOAD_SIZE = BATCH_SIZE * BATCHES_TO_LOAD;
 
 GPU_Network* nn;
@@ -842,7 +870,7 @@ float calcLoss(GPU_Network*& nn, int l, int r, FILE* bin_file) {
 void runTraining(int dataSize, int epochs, float split, string loadPath, string dataPath, bool load) {
     int trainSize = dataSize * (1.0 - split);
 
-    string rootPath = "nn_";
+    string rootPath = "nn_lr_";
 
     prealloc_on_cuda();
 
@@ -869,15 +897,15 @@ void runTraining(int dataSize, int epochs, float split, string loadPath, string 
         float trainingLoss = 0, validationLoss = 0;
         string currentPath = rootPath + to_string(epoch) + ".nn";
 
-        for (int i = 0, batch_id = 0; i < trainSize; i += BATCH_SIZE, batch_id++) {
+        for (int batch_id = 0; batch_id < BATCHES_PER_EPOCH; batch_id++) {
             //float t1 = clock();
-            cout << "Batch " << batch_id + 1 << "/" << trainSize / BATCH_SIZE + 1 << "\r";
+            cout << "Batch " << batch_id + 1 << "/" << BATCHES_PER_EPOCH << "\r";
             //nn->save(savePath);
             //cpu_nn.load(savePath);
             if (batch_id % BATCHES_TO_LOAD == 0)
                 load_data(bin_file);
 
-            trainOnBatch(nn, i, min(i + BATCH_SIZE, trainSize), trainingLoss, bin_file, 32 * BATCH_SIZE * (batch_id % BATCHES_TO_LOAD));
+            trainOnBatch(nn, batch_id * BATCH_SIZE, min((batch_id + 1) * BATCH_SIZE, trainSize), trainingLoss, bin_file, 32 * BATCH_SIZE * (batch_id % BATCHES_TO_LOAD));
             //nn->save(currentPath);
             //cpu_nn.load(currentPath);
             //trainOnBatch(cpu_nn, dataset, i, min(i + BATCH_SIZE, trainSize));
@@ -908,7 +936,7 @@ void runTraining(int dataSize, int epochs, float split, string loadPath, string 
         cout << cpu_nn.outputBias[0] << "\n";
 
 
-        if (epoch % 30 == 0)
+        if (false)
             LR /= 2;
 
         fclose(bin_file);
